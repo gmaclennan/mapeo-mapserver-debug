@@ -1,4 +1,11 @@
-import { afterEach, before, beforeEach, teardown, test } from 'tap'
+import {
+  afterEach,
+  before,
+  beforeEach,
+  teardown,
+  test,
+  setTimeout as setTestTimeout,
+} from 'tap'
 import tmp from 'tmp'
 import path from 'path'
 import fs from 'fs'
@@ -80,6 +87,10 @@ afterEach((t) => {
 teardown(() => {
   mockTileServer.close()
 })
+
+// Set overall test timeout to 60 seconds (60000ms)
+// Necessary since any tile import tests take a little longer
+setTestTimeout(60 * 1000)
 
 /**
  * /tilesets tests
@@ -370,6 +381,48 @@ test('POST /tilesets/import creates style for created tileset', async (t) => {
   t.ok(matchingStyle)
 })
 
+test('POST /tilesets/import multiple times using same source file works', async (t) => {
+  t.plan(4)
+
+  const { sampleMbTilesPath, server } = t.context as TestContext
+
+  async function requestImport() {
+    return await server.inject({
+      method: 'POST',
+      url: '/tilesets/import',
+      payload: { filePath: sampleMbTilesPath },
+    })
+  }
+
+  const importResponse1 = await requestImport()
+
+  t.equal(importResponse1.statusCode, 200)
+
+  const { id: tilesetId1 } = importResponse1.json()
+
+  const tilesetGetResponse1 = await server.inject({
+    method: 'GET',
+    url: `/tilesets/${tilesetId1}`,
+  })
+
+  t.equal(tilesetGetResponse1.statusCode, 200)
+
+  // Repeated request with same file path
+
+  const importResponse2 = await requestImport()
+
+  t.equal(importResponse2.statusCode, 200)
+
+  const { id: tilesetId2 } = importResponse2.json()
+
+  const tilesetGetResponse2 = await server.inject({
+    method: 'GET',
+    url: `/tilesets/${tilesetId2}`,
+  })
+
+  t.equal(tilesetGetResponse2.statusCode, 200)
+})
+
 /**
  * /styles tests
  */
@@ -652,7 +705,9 @@ test('DELETE /styles/:styleId when style exists returns 204 status code and empt
   t.equal(responseGet.statusCode, 404, 'style is properly deleted')
 })
 
-test('DELETE /styles/:styleId works for style with associated OfflineArea and Import', async (t) => {
+test('DELETE /styles/:styleId works for style created from tileset import', async (t) => {
+  t.plan(3)
+
   const { sampleMbTilesPath, server } = t.context as TestContext
 
   const importResponse = await server.inject({
